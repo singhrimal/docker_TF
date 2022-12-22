@@ -1,0 +1,110 @@
+# Create default VPC
+
+data "aws_vpc" "dev-vpc" {
+  id = "vpc-0b2de7e6762a81453"
+}
+
+data "aws_availability_zones" "available_zones" {}
+
+data "aws_subnet" "PublicSubnet" {
+  id = "subnet-0a5c8b8e6424e0047"
+}
+# use data source to get a registered amazon linux 2 ami
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "owner-alias"
+    values = ["amazon"]
+  }
+
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm*"]
+  }
+}
+/*resource "aws_security_group" "ec2_security_group" {
+  name        = "ec2 security group"
+  description = "allow access on ports 80 and 22"
+  vpc_id      = data.aws_vpc.dev-vpc.id
+
+  ingress {
+    description = "http access"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "ssh access"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = -1
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "docker server sg"
+  }
+}*/
+
+data "aws_security_group" "SG-docker" {
+  id = "sg-04559707b97791147"
+
+}
+
+
+resource "aws_instance" "DockerInstance" {
+  ami                    = data.aws_ami.amazon_linux_2.id
+  instance_type          = "t2.micro"
+  subnet_id              = data.aws_subnet.PublicSubnet.id
+  vpc_security_group_ids = [data.aws_security_group.SG-docker.id]
+  key_name               = "newkey"
+  associate_public_ip_address = "true"
+
+
+}
+
+# Provisiones for my docker image
+resource "null_resource" "key" {
+  connection {
+    type        = "ssh"
+    user        = "ec2-user"
+    private_key = file("~/Downloads/newkey.pem")
+    host        = aws_instance.DockerInstance.public_ip
+  }
+
+  /* provisioner "file" {
+    source      = "build-image.sh"
+    destination = "/home/ec2-user/build-image.sh"
+  }
+
+  # copy the dockerfile from your computer to the ec2 instance 
+  provisioner "file" {
+    source      = "dockerfile"
+    destination = "/home/ec2-user/dockerfile"
+  }
+  provisioner "remote-exec" {
+    inline = [
+      "sudo chmod +x /home/ec2-user/build-image.sh",
+      "sh /home/ec2-user/build-image.sh"
+
+    ]
+  }*/
+  depends_on = [aws_instance.DockerInstance]
+}
+
+
+# print the url of the container
+output "container_url" {
+  value = join("", ["http://", aws_instance.DockerInstance.public_dns])
+}
